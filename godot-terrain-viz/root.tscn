@@ -1,0 +1,16 @@
+[gd_scene load_steps=3 format=3 uid="uid://8aqjre3s30k0"]
+
+[ext_resource type="Script" uid="uid://5kf2owaouks8" path="res://terrain.gd" id="1_pq8q7"]
+
+[sub_resource type="Environment" id="Environment_pq8q7"]
+
+[node name="root" type="Node"]
+
+[node name="terrain" type="MultiMeshInstance3D" parent="."]
+script = ExtResource("1_pq8q7")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.70710677, 0.70710677, 0, -0.70710677, 0.70710677, 0, 0, 0)
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_pq8q7")

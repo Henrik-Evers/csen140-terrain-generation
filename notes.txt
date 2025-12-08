@@ -1,0 +1,35 @@
+num_workers: If too low, GPU goes idle between epochs while waiting for more data and may not be at full utilization during epochs. If too high, GPU goes idle between epochs while waiting for workers to be spun up.
+
+Attempt 1 was initial viable attempt. Attempt 2 was a bit of a mistake trying to fix.
+
+Attempt 3 switches to bilinear interpolation and applies the annealing noise starting at 0.1, as well as bringing num_workers to best-performing 1. Generator might be overfitting? Might actually want to swap back to the default linear interpolation. Going to try reducing the discriminator learning rate slightly, to 0.00015.
+
+Attempt 4 returns to linear interpolations and and reduces discriminator learning rate to 0.00015. Since this is going overnight, also increasing batch size to 256 (from 64). Actually, the first few epochs were suspicious, leaving it on bilinear.
+Results still show a 'model collapse' into darkness, as the discriminator is slightly confused (~0.5) but the generator is doing poorly but not sure how to improve (loss 2-5), so it's 'hiding' in the dark values (might be because of ocean dominance?).
+
+Attempt 5 switches from Binary Cross-Entropy Loss to Mean Squared Error, since BCE can suffer from vanishing gradients when the generator is doing poorly (or so says Gemini). Also increasing the kernel size to 5 in the Conv2d, to better smooth upsampling artifacts, and applying utils.spectral_norm to the Conv2d in the discriminator to help limit the impact of upsampling artifacts (internet claims industry standard).
+Also: persistent_workers=True to avoid workers being respawned every epoch, allowing us to go back to 4 workers.
+Batches per epoch is just to control how long between checkpoints, batch size is much more important to increase for better stability. Doubled batch size to 512, halved batches per epoch to 512. Batch size should be as large as can fit in VRAM, ideally.
+Data now processed as FP16 tensors and only converted to FP32 once it's on the GPU.
+The output looks really blurry and generic, we're now over-generalizing.
+
+Attempt 6 will halve the starting noise and have it decay to 0 halfway through the epochs, so the noise stops hiding the actual terrain. Reduced discriminator dropout from 0.25 to 0.05. Switching from MSE to Hinge loss, and removing sigmoid in discriminator output since Hinge wants the raw output. Changed batch size to 384 (can't quite fit in VRAM / making computer have issues), batches per epoch to 640 to compensate.
+Switched from using BatchNorm2d at each upsampling to using InstanceNorm2d, and removed the erroneous eps=0.8 (to be fair, it was an error in published code). InstanceNorm normalizes each sample separately, rather than across a batch. This gives better definition for each sample, but risks losing absolute scale. Affine=True includes a shift parameter to compensate.
+Unfortunately, an eps=0.8 was missed in the discriminator. We started with good looking results, but it fell apart quickly.
+
+Attempt 7 trains the generator on the scoring of the original fake data, so that it doesn't try to compensate for the noise that wasn't actually part of its generation. Also went back to batch size of 256 and batches per epoch of 1024.
+Returned start_sigma to 0.1.
+
+Rescaled the one-hot channels to be on [-1, 1]. This is BAD. DO NOT.
+Do not change Gumbel_Softmax to hard=True. This is also bad, since the model loses the information to train off of.
+
+Attempt 8. Adding padding_mode='reflect' to the Conv2d layers in the generator. Set noise applied to be centred at 0, equally likely to increase or decrease values.
+Getting some nice results the first few epochs, though a lot are fairly flat. Started slowly collapsing after a dozen epochs. Potentially consider slightly increasing learning rate for the generator?
+
+Attempt 9. Increased generator learning rate to 0.0003. Also returned stride to 64, so every dataset pixel is in exactly one tile, because there previously wasn't enough data to actually perform the full epochs. Also reran the data preprocessing, with vegetation 254 and 255 being set to 0.
+While the initial iterations were promising, they still collapsed after just a few epochs. Going to revert the generator learning rate and try again.
+
+Attempt 10. Returned generator learning rate to 0.0002. Set beta1 to the default 0.9 for both models.
+
+What would happen if we changed the Discriminator BatchNorm2d to an InstanceNorm2d? There's also another BatchNorm2d at the very start of the Generator.
+It would appear to also always be guessing water with no vegetation. Might want to try removing water sections of the map? Maybe try to reduce penalties for that somehow? Probably want to make the actual data less obvious since it's always exactly 1 or 0. Potentially change Gumbel-Softmax tau.
