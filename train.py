@@ -16,11 +16,13 @@ model_dir = os.path.join(home_dir, 'Model')
 
 # Class to provide a view to the data without loading the entire thing at once
 class TerrainDataset(Dataset):
-    def __init__(self, tile_size, stride, num_classes):
+    def __init__(self, tile_size, stride, num_classes, mode='train', val_split=0.2, pull=0.01, noise=0.01):
         self.tile_size = tile_size # each section of terrain that we look at
         self.stride = stride # how much to shift the view each time
         self.num_classes = num_classes # number of classes in land cover
         self.data = None
+        self.pull = pull
+        self.noise = noise
 
         if not os.path.exists(data_path):
             print('data_path does not exist: ', data_path)
@@ -30,12 +32,20 @@ class TerrainDataset(Dataset):
         data = np.load(data_path, mmap_mode='r')
 
         # Get indices for each of the tiles
-        self.indices = []
+        indices = []
         for x in range(0, data.shape[0] - self.tile_size + 1, self.stride):
             for y in range(0, data.shape[1] - self.tile_size + 1, self.stride):
-                self.indices.append((x, y))
+                indices.append((x, y))
+        
+        np.random.shuffle(indices)
+        split_idx = int(len(indices) * (1 - val_split))
 
-        print(f'Dataset initialized with {len(self.indices)} tiles')
+        if mode == 'train':
+            self.indices = indices[:split_idx]
+        else:
+            self.indices = indices[split_idx:]
+
+        print(f'Dataset ({mode}) initialized with {len(self.indices)} tiles')
 
     def __len__(self):
         return len(self.indices)
@@ -51,17 +61,22 @@ class TerrainDataset(Dataset):
         height_tensor = torch.from_numpy(tile[:, :, 0]).unsqueeze(0)
         veg_tensor = torch.from_numpy(tile[:, :, 1]).unsqueeze(0)
         cover = torch.from_numpy(tile[:, :, 2]).long()
-        cover_onehot = F.one_hot(cover, num_classes=self.num_classes).permute(2, 0, 1)
+        cover_onehot = F.one_hot(cover, num_classes=self.num_classes).permute(2, 0, 1).float()
         # change the one-hot probabilities to be ~0.1 for not and ~0.9 for is, then small noise? might help discrimin on this layer
 
-        final_tensor = torch.cat([height_tensor, veg_tensor, cover_onehot], dim=0)
+        # Soften the one-hot probabilities and apply some noise, so that the discriminator doesn't have the easy out of 1.0 or 0.0 = real, anything else = fake.
+        self.pull = 0.01 # average that probabilities are from 1.0/0.0
+        self.noise = 0.01 # max noise offset, should be <= PULL
+        cover_soft = cover_onehot * (1 - 2 * self.pull) + self.pull + torch.rand_like(cover_onehot) * 2 * self.noise - self.noise
+
+        final_tensor = torch.cat([height_tensor, veg_tensor, cover_soft], dim=0)
         return final_tensor.half() # keep in FP16 here because data is FP16. also my RAM is crying and buying more is too expensive
 
 
 # Much of the below is adapted from https://www.cnblogs.com/linzzz98/articles/13656162.html
 # It has been significantly modified from the source, but it was a valuable reference while creating the initial structure.
 class Generator(nn.Module):
-    def __init__(self, z_dim, img_size, num_classes):
+    def __init__(self, z_dim, img_size, num_classes, kernel_size):
         super(Generator, self).__init__()
         self.img_size = img_size
         self.num_classes = num_classes
@@ -74,42 +89,26 @@ class Generator(nn.Module):
         
         # Use a series of upsamples to avoid needing a massive series of fully-connected layers
         # my computer is only so good
-        CONV_KERNEL_SIZE = 5
+        CONV_KERNEL_SIZE = kernel_size
         PADDING = (CONV_KERNEL_SIZE - 1) // 2
+
+        def generator_block(in_filters, out_filters, batch=False):
+            block = [nn.Upsample(scale_factor=2, mode='bilinear'),
+                     nn.Conv2d(in_filters, out_filters, kernel_size=CONV_KERNEL_SIZE, stride=1, padding=PADDING, padding_mode='reflect')]
+            if batch:
+                block.append(nn.BatchNorm2d(out_filters))
+            else:
+                block.append(nn.InstanceNorm2d(out_filters, affine=True))
+            block.append(nn.LeakyReLU(0.2, inplace=True))
+            return block
+        
         self.conv_blocks = nn.Sequential(
             nn.BatchNorm2d(512),
-            
-            # 4x4 -> 8x8
-            # nn.Upsample(scale_factor=2),
-            nn.Upsample(scale_factor=2, mode='bilinear'),
-            nn.Conv2d(512, 256, kernel_size=CONV_KERNEL_SIZE, stride=1, padding=PADDING, padding_mode='reflect'),
-            # nn.BatchNorm2d(256),
-            nn.InstanceNorm2d(256, affine=True),
-            nn.LeakyReLU(0.2, inplace=True),
-            
-            # 8x8 -> 16x16
-            # nn.Upsample(scale_factor=2),
-            nn.Upsample(scale_factor=2, mode='bilinear'),
-            nn.Conv2d(256, 128, kernel_size=CONV_KERNEL_SIZE, stride=1, padding=PADDING, padding_mode='reflect'),
-            # nn.BatchNorm2d(128),
-            nn.InstanceNorm2d(128, affine=True),
-            nn.LeakyReLU(0.2, inplace=True),
-            
-            # 16x16 -> 32x32
-            # nn.Upsample(scale_factor=2),
-            nn.Upsample(scale_factor=2, mode='bilinear'),
-            nn.Conv2d(128, 64, kernel_size=CONV_KERNEL_SIZE, stride=1, padding=PADDING, padding_mode='reflect'),
-            # nn.BatchNorm2d(64),
-            nn.InstanceNorm2d(64, affine=True),
-            nn.LeakyReLU(0.2, inplace=True),
-            
-            # 32x32 -> 64x64
-            # nn.Upsample(scale_factor=2),
-            nn.Upsample(scale_factor=2, mode='bilinear'),
-            nn.Conv2d(64, 32, kernel_size=CONV_KERNEL_SIZE, stride=1, padding=PADDING, padding_mode='reflect'),
-            # nn.BatchNorm2d(32),
-            nn.InstanceNorm2d(32, affine=True),
-            nn.LeakyReLU(0.2, inplace=True),
+
+            *generator_block(512, 256), # 4x4  ->  8x8
+            *generator_block(256, 128), # 8x8  -> 16x16
+            *generator_block(128, 64), # 16x16 -> 32x32
+            *generator_block(64, 32)   # 32x32 -> 64x64
         )
         
         # Continuous head for height and vegetation
@@ -146,7 +145,7 @@ class Discriminator(nn.Module):
             block = [utils.spectral_norm(nn.Conv2d(in_filters, out_filters, 3, 2, 1)), 
                      nn.LeakyReLU(0.2, inplace=True), 
                      nn.Dropout2d(0.05)]
-            if bn:
+            if bn == True:
                 block.append(nn.BatchNorm2d(out_filters))
             return block
 
@@ -171,12 +170,6 @@ class Discriminator(nn.Module):
         return out.view(out.shape[0], -1)
 
 
-# Fix random seeds for reproducibility
-torch.manual_seed(42)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed(42)
-
-
 # To set small random starting weights
 def weights_init_normal(m):
     classname = m.__class__.__name__
@@ -188,47 +181,67 @@ def weights_init_normal(m):
 
 
 # A noise-based regularization offset
-def get_noise_annealed(epoch, max_epochs, start_sigma=0.1):
-    # Linearly decay noise from start_sigma to 0.0 over the course of training
+def get_noise_annealed(epoch, max_epochs, start_noise=0.1):
+    # Linearly decay noise from start_noise to 0.0 over the course of training
     # Applied to the data passed to the discriminator to reduce overfitting and improve generalization
     if epoch < max_epochs/2:
-        return start_sigma * (1 - 2 * epoch / max_epochs)
+        return start_noise * (1 - 2 * epoch / max_epochs)
     else: # no noise for the second half, so the discriminator will challenge the generator better
         return 0
 
 
-if __name__ == "__main__":
+# Fix random seeds for reproducibility
+torch.manual_seed(42)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(42)
+np.random.seed(42)
+
+
+def train(config):
     # Parameters n' stuff
     Z_DIM = 100
     IMG_SIZE = 64
     STRIDE = 64
     NUM_CLASSES = 21
     TOTAL_CHANNELS = 1 + 1 + NUM_CLASSES # 23
-    BATCH_SIZE = 256
-    EPOCHS = 4
-    BATCHES_PER_EPOCH = 1024 # i am impatient
+    
+    RUN_NAME = config.get('name', 'default_run')
+    BATCH_SIZE = config.get('batch_size', 256)
+    EPOCHS = config.get('epochs', 8)
+    BATCHES_PER_EPOCH = config.get('batches_per_epoch', 1024) # i am impatient
+    LR_G = config.get('lr_g', 0.0002)
+    LR_D = config.get('lr_d', 0.00015)
+    BETAS = config.get('betas', (0.9, 0.999))
+    GEN_CONV_KERNEL_SIZE = config.get('kernel_size', 3)
+    PULL = config.get('pull', 0.01)
+    NOISE = config.get('noise', 0.01)
+    START_NOISE = config.get('start_noise', 0.1)
+
+    current_model_dir = os.path.join(model_dir, RUN_NAME)
+    os.makedirs(current_model_dir, exist_ok=True)
+
+    print(f"Starting Run: {RUN_NAME}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(device)
 
     # Initialize data stuff
-    dataset = TerrainDataset(tile_size=IMG_SIZE, stride=STRIDE, num_classes=NUM_CLASSES)
+    dataset = TerrainDataset(tile_size=IMG_SIZE, stride=STRIDE, num_classes=NUM_CLASSES, mode='train', pull=PULL, noise=NOISE)
     dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, persistent_workers=True, pin_memory=True)
 
+    val_dataset = TerrainDataset(tile_size=IMG_SIZE, stride=STRIDE, num_classes=NUM_CLASSES, mode='validate', pull=PULL, noise=NOISE)
+    val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, persistent_workers=True, pin_memory=True)
+
     # Initialize the models
-    generator = Generator(Z_DIM, IMG_SIZE, NUM_CLASSES).to(device)
+    generator = Generator(Z_DIM, IMG_SIZE, NUM_CLASSES, GEN_CONV_KERNEL_SIZE).to(device)
     discriminator = Discriminator(TOTAL_CHANNELS).to(device)
 
     generator.apply(weights_init_normal)
     discriminator.apply(weights_init_normal)
 
     # Initialize the optimizers
-    optimizer_G = torch.optim.Adam(generator.parameters(), lr=0.0002, betas=(0.9, 0.999))
-    optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=0.00015, betas=(0.9, 0.999))
-
-    # |  ||
-    # || |_
-    # loss = nn.MSELoss()
+    optimizer_G = torch.optim.Adam(generator.parameters(), lr=0.0002, betas=BETAS)
+    optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=0.00015, betas=BETAS)
 
     # Random noise
     fixed_z = torch.randn(BATCH_SIZE, Z_DIM).to(device) # used for evaluation - consistent across epochs
@@ -238,7 +251,7 @@ if __name__ == "__main__":
 
     # Train!
     for epoch in range(EPOCHS):
-        current_noise = get_noise_annealed(epoch, EPOCHS)
+        current_noise = get_noise_annealed(epoch, EPOCHS, START_NOISE)
         d_loss_epoch = 0
         g_loss_epoch = 0
 
@@ -266,7 +279,6 @@ if __name__ == "__main__":
             label.fill_(0.0) # fake labels are all 0
 
             output = discriminator(noisy_fake_data.detach()).view(-1)
-            # d_loss_fake = loss(output, label)
             d_loss_fake = torch.mean(F.relu(1.0 + output))
             d_loss_fake.backward()
 
@@ -281,7 +293,6 @@ if __name__ == "__main__":
             label.fill_(1.0)
             
             output = discriminator(fake_data).view(-1)
-            # g_loss = loss(output, label)
             g_loss = -torch.mean(output)
             g_loss.backward()
 
@@ -302,10 +313,18 @@ if __name__ == "__main__":
                 losses[0].append(d_loss_epoch / BATCHES_PER_EPOCH)
                 losses[1].append(g_loss_epoch / BATCHES_PER_EPOCH)
                 break
-                
+        
+        # Perform validation
+        with torch.no_grad():
+            # Run the discriminator on a piece of validation data
+            val_data = next(iter(val_dataloader)).to(device).float()
+            val_loss = discriminator(val_data).mean().item()
+
+            print(f"Validation Loss: {val_loss:.4f}")
+
         # Save the model from the latest epoch
-        torch.save(generator.state_dict(), os.path.join(model_dir, 'generator.pth'))
-        torch.save(discriminator.state_dict(), os.path.join(model_dir, 'discriminator.pth'))
+        torch.save(generator.state_dict(), os.path.join(current_model_dir, f'generator{epoch}.pth'))
+        torch.save(discriminator.state_dict(), os.path.join(current_model_dir, f'discriminator{epoch}.pth'))
         
         # Save an image for this epoch to visualize progress
         with torch.no_grad():
@@ -316,6 +335,14 @@ if __name__ == "__main__":
             height_map = fake[:, 0, :, :].unsqueeze(1)
             height_map = (height_map + 1) / 2 
             
-            vutils.save_image(height_map, os.path.join(model_dir, f"{epoch}.png"), normalize=False)
+            vutils.save_image(height_map, os.path.join(current_model_dir, f"{epoch}.png"), normalize=False)
     
-    plt.figure(); plt.plot(losses[0], label='discriminator'); plt.plot(losses[1], label='generator'); plt.xlabel('epoch'); plt.ylabel('loss'); plt.title('Generator and Discriminator Losses'); plt.legend(); plt.show()
+    plt.figure(); plt.plot(losses[0], label='discriminator'); plt.plot(losses[1], label='generator'); plt.xlabel('epoch'); plt.ylabel('loss'); plt.title('Generator and Discriminator Losses'); plt.legend()
+    plt.savefig(os.path.join(current_model_dir, 'losses.png'))
+    plt.close()
+
+if __name__ == "__main__":
+    default_config = {
+        'name': 'manual_run',
+    }
+    train(default_config)

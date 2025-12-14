@@ -7,7 +7,7 @@ from train import Generator # Generator class from train.py
 
 home_dir = os.getcwd() # %userprofile%\Documents\Github\csen140-terrain-generation
 data_dir = os.path.join(home_dir, 'Data')
-model_dir = os.path.join(home_dir, 'attempt10') # Model would be where the output from train.py goes, but I'm saving outside of it during iteration
+model_dir = os.path.join(home_dir, 'attempt11') # Model would be where the output from train.py goes, but I'm saving outside of it during iteration
 generator_path = os.path.join(model_dir, 'generator.pth')
 
 if __name__ == "__main__":

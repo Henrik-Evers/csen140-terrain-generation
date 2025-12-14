@@ -33,3 +33,8 @@ Attempt 10. Returned generator learning rate to 0.0002. Set beta1 to the default
 
 What would happen if we changed the Discriminator BatchNorm2d to an InstanceNorm2d? There's also another BatchNorm2d at the very start of the Generator.
 It would appear to also always be guessing water with no vegetation. Might want to try removing water sections of the map? Maybe try to reduce penalties for that somehow? Probably want to make the actual data less obvious since it's always exactly 1 or 0. Potentially change Gumbel-Softmax tau.
+
+What should we CV? Betas, learning rates, start_sigma, # epochs vs. batches_per_epoch (affects how the get_noise_annealed scales), conv_kernel_size, BatchNorm2d/InstanceNorm2d, 
+
+Attempt 11. Softened one-hot land cover with pull=0.01, noise=0.01. Also changed generator to use InstanceNorm2d rather than BatchNorm2d at the start. Collapsed after the first epoch. Examination shows that it does predict other land cover, though! Going to change generator to use only BatchNorm2d and try again. Getting some really crazy spikiness in the data. Going back to InstanceNorm2d for everything but the beginning (what we were at for attempt 10) and reducing conv_kernel_size to 3.
+The results are quite intriguing - normal results after epoch 0, collapsed after epoch 1, back to normal after epoch 2, then collapsed again for epoch 3. Unfortunately, still scaled crazily.

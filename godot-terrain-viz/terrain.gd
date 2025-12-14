@@ -2,7 +2,8 @@ extends MultiMeshInstance3D
 
 
 #const TERRAIN_PATH := "res://../Data/data.npy";
-const TERRAIN_PATH := "res://../attempt10/generated_2.npy";
+const TERRAIN_PATH := "res://../attempt11/generated_3.npy";
+#const TERRAIN_PATH := "res://../Model/generated_3.npy";
 const COLORS := { # The color of each terrain type
 	'sparse_vegetation': Color(0.463, 0.506, 0.394, 1.0),
 	'bare_rock': Color(0.455, 0.455, 0.455, 1.0),
