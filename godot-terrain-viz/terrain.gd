@@ -2,15 +2,31 @@ extends MultiMeshInstance3D
 
 
 #const TERRAIN_PATH := "res://../Data/data.npy";
-const TERRAIN_PATH := "res://../attempt11/generated_3.npy";
-#const TERRAIN_PATH := "res://../Model/generated_3.npy";
+#const TERRAIN_PATH := "res://../attempt11/generated_3.npy";
+const TERRAIN_PATH := "res://../Model/manual_run_mse/generated_3.npy";
 const COLORS := { # The color of each terrain type
+	'broadleaf_evergreen': Color(0.0, 0.517, 0.019, 1.0),
+	'broadleaf_deciduous': Color(0.37, 0.486, 0.149, 1.0),
+	'needleleaf_evergreen': Color(0.0, 0.517, 0.019, 1.0),
+	'needleleaf_deciduous': Color(0.37, 0.486, 0.149, 1.0),
+	'mixed_forest': Color(0.612, 0.689, 0.185, 1.0),
+	'tree_open': Color(0.354, 0.783, 0.094, 1.0),
+	'shrub': Color(0.61, 0.565, 0.047, 1.0),
+	'herbaceous': Color(0.499, 0.661, 0.217, 1.0),
+	'herb_sparse_veg': Color(0.382, 0.763, 0.135, 1.0),
 	'sparse_vegetation': Color(0.463, 0.506, 0.394, 1.0),
+	'cropland': Color(0.741, 0.686, 0.358, 1.0),
+	'paddy': Color(0.375, 0.831, 0.622, 1.0),
+	'mosaic_crop': Color(0.786, 0.606, 0.253, 1.0),
+	'mangrove': Color(0.0, 0.611, 0.438, 1.0),
+	'wetland': Color(0.169, 0.753, 0.568, 1.0),
 	'bare_rock': Color(0.455, 0.455, 0.455, 1.0),
 	'bare_sand': Color(0.598, 0.567, 0.376, 1.0),
+	'urban': Color(0.223, 0.223, 0.223, 1.0),
+	'snow': Color(1.0, 1.0, 1.0, 1.0),
 	'water': Color(0.0, 0.564, 0.904, 1.0),
 }
-const HEIGHT_SCALE := 0.1; # So it fits within an actually visible range
+const HEIGHT_SCALE := 0.01; # So it fits within an actually visible range
 
 # A very *fun* fact: Python's integers are not fixed size!
 # It changes based on the size needed to accomodate the value.
@@ -89,9 +105,25 @@ func render_terrain() -> void:
 		# Choose the color
 		var color : Color;
 		match point[1]:
+			1:  color = COLORS['broadleaf_evergreen'];
+			2:  color = COLORS['broadleaf_deciduous'];
+			3:  color = COLORS['needleleaf_evergreen'];
+			4:  color = COLORS['needleleaf_deciduous'];
+			5:  color = COLORS['mixed_forest'];
+			6:  color = COLORS['tree_open'];
+			7:  color = COLORS['shrub'];
+			8:  color = COLORS['herbaceous'];
+			9:  color = COLORS['herb_sparse_veg'];
 			10: color = COLORS['sparse_vegetation'];
+			11: color = COLORS['cropland'];
+			12: color = COLORS['paddy'];
+			13: color = COLORS['mosaic_crop'];
+			14: color = COLORS['mangrove'];
+			15: color = COLORS['wetland'];
 			16: color = COLORS['bare_rock'];
 			17: color = COLORS['bare_sand'];
+			18: color = COLORS['urban'];
+			19: color = COLORS['snow'];
 			20: color = COLORS['water'];
 		self.multimesh.set_instance_color(i, color);
 	

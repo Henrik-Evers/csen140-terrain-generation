@@ -38,3 +38,6 @@ What should we CV? Betas, learning rates, start_sigma, # epochs vs. batches_per_
 
 Attempt 11. Softened one-hot land cover with pull=0.01, noise=0.01. Also changed generator to use InstanceNorm2d rather than BatchNorm2d at the start. Collapsed after the first epoch. Examination shows that it does predict other land cover, though! Going to change generator to use only BatchNorm2d and try again. Getting some really crazy spikiness in the data. Going back to InstanceNorm2d for everything but the beginning (what we were at for attempt 10) and reducing conv_kernel_size to 3.
 The results are quite intriguing - normal results after epoch 0, collapsed after epoch 1, back to normal after epoch 2, then collapsed again for epoch 3. Unfortunately, still scaled crazily.
+Parameter sweep was done at this point.
+
+Attempt 12. Looking at the PyTorch tutorial for a DCGAN, I didn't realize they had a tutorial and thought I was stuck with random online guides. Going back to BCE and using BatchNorm2d since that's what they recommend, and setting the real data label to 1.0 since that's in the tutorial. Also returned beta1 to 0.5 since that's also used here, so the default is probably for a different context.

@@ -7,14 +7,15 @@ from train import Generator # Generator class from train.py
 
 home_dir = os.getcwd() # %userprofile%\Documents\Github\csen140-terrain-generation
 data_dir = os.path.join(home_dir, 'Data')
-model_dir = os.path.join(home_dir, 'attempt11') # Model would be where the output from train.py goes, but I'm saving outside of it during iteration
-generator_path = os.path.join(model_dir, 'generator.pth')
+model_dir = os.path.join(home_dir, 'Model', 'manual_run_mse') # Model would be where the output from train.py goes, but I'm saving outside of it during iteration
+generator_path = os.path.join(model_dir, 'generator0.pth')
 
 if __name__ == "__main__":
     # Parameters n' stuff - sync with train.py
     Z_DIM = 100
     IMG_SIZE = 64
     NUM_CLASSES = 21
+    GEN_CONV_KERNEL_SIZE = 3
 
     # For de-normalization of data - sync with data_preparation.py
     MIN_HEIGHT = -500.0 # ~Death Valley
@@ -25,7 +26,7 @@ if __name__ == "__main__":
     print(device)
 
     # Load the generator model
-    generator = Generator(Z_DIM, IMG_SIZE, NUM_CLASSES).to(device)
+    generator = Generator(Z_DIM, IMG_SIZE, NUM_CLASSES, GEN_CONV_KERNEL_SIZE).to(device)
     generator.load_state_dict(torch.load(generator_path, map_location=device))
     generator.eval()
 

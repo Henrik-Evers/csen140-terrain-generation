@@ -92,7 +92,7 @@ class Generator(nn.Module):
         CONV_KERNEL_SIZE = kernel_size
         PADDING = (CONV_KERNEL_SIZE - 1) // 2
 
-        def generator_block(in_filters, out_filters, batch=False):
+        def generator_block(in_filters, out_filters, batch=True):
             block = [nn.Upsample(scale_factor=2, mode='bilinear'),
                      nn.Conv2d(in_filters, out_filters, kernel_size=CONV_KERNEL_SIZE, stride=1, padding=PADDING, padding_mode='reflect')]
             if batch:
@@ -108,7 +108,7 @@ class Generator(nn.Module):
             *generator_block(512, 256), # 4x4  ->  8x8
             *generator_block(256, 128), # 8x8  -> 16x16
             *generator_block(128, 64), # 16x16 -> 32x32
-            *generator_block(64, 32)   # 32x32 -> 64x64
+            *generator_block(64, 32),  # 32x32 -> 64x64
         )
         
         # Continuous head for height and vegetation
@@ -161,7 +161,7 @@ class Discriminator(nn.Module):
         # Downsample to 1 value
         self.adv_layer = nn.Sequential(
             nn.Conv2d(128, 1, kernel_size=4, stride=1, padding=0),
-            # nn.Sigmoid() # needed for BCE/MSE, don't use for Hinge
+            nn.Sigmoid() # needed for BCE/MSE, don't use for Hinge
         )
 
     def forward(self, img):
@@ -211,7 +211,7 @@ def train(config):
     BATCHES_PER_EPOCH = config.get('batches_per_epoch', 1024) # i am impatient
     LR_G = config.get('lr_g', 0.0002)
     LR_D = config.get('lr_d', 0.00015)
-    BETAS = config.get('betas', (0.9, 0.999))
+    BETAS = config.get('betas', (0.5, 0.999))
     GEN_CONV_KERNEL_SIZE = config.get('kernel_size', 3)
     PULL = config.get('pull', 0.01)
     NOISE = config.get('noise', 0.01)
@@ -240,8 +240,12 @@ def train(config):
     discriminator.apply(weights_init_normal)
 
     # Initialize the optimizers
-    optimizer_G = torch.optim.Adam(generator.parameters(), lr=0.0002, betas=BETAS)
-    optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=0.00015, betas=BETAS)
+    optimizer_G = torch.optim.Adam(generator.parameters(), lr=LR_G, betas=BETAS)
+    optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=LR_D, betas=BETAS)
+
+    # |  ||
+    # || |_
+    criterion = nn.MSELoss()
 
     # Random noise
     fixed_z = torch.randn(BATCH_SIZE, Z_DIM).to(device) # used for evaluation - consistent across epochs
@@ -264,11 +268,11 @@ def train(config):
             noise = torch.randn_like(real_data) * current_noise
             real_data += noise - noise/2 # noise can be + or -
             b_size = real_data.size(0) # in case we don't get a full batch
-            label = torch.full((b_size,), 0.9, dtype=torch.float, device=device) # smooth label so overfitting less likely
+            label = torch.full((b_size,), 1.0, dtype=torch.float, device=device) # smooth label so overfitting less likely
 
             output = discriminator(real_data).view(-1)
-            # d_loss_real = loss(output, label)
-            d_loss_real = torch.mean(F.relu(1.0 - output))
+            d_loss_real = criterion(output, label)
+            # d_loss_real = torch.mean(F.relu(1.0 - output))
             d_loss_real.backward()
 
             # Train with a batch of fake data
@@ -279,7 +283,8 @@ def train(config):
             label.fill_(0.0) # fake labels are all 0
 
             output = discriminator(noisy_fake_data.detach()).view(-1)
-            d_loss_fake = torch.mean(F.relu(1.0 + output))
+            d_loss_fake = criterion(output, label)
+            # d_loss_fake = torch.mean(F.relu(1.0 + output))
             d_loss_fake.backward()
 
             # Iterate the discriminator optimizer
@@ -293,7 +298,8 @@ def train(config):
             label.fill_(1.0)
             
             output = discriminator(fake_data).view(-1)
-            g_loss = -torch.mean(output)
+            g_loss = criterion(output, label)
+            # g_loss = -torch.mean(output)
             g_loss.backward()
 
             # Iterate the generator optimizer
@@ -318,9 +324,9 @@ def train(config):
         with torch.no_grad():
             # Run the discriminator on a piece of validation data
             val_data = next(iter(val_dataloader)).to(device).float()
-            val_loss = discriminator(val_data).mean().item()
+            val_score = discriminator(val_data).mean().item()
 
-            print(f"Validation Loss: {val_loss:.4f}")
+            print(f"Validation Loss: {val_score:.4f}")
 
         # Save the model from the latest epoch
         torch.save(generator.state_dict(), os.path.join(current_model_dir, f'generator{epoch}.pth'))
